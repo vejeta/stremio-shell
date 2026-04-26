@@ -305,7 +305,10 @@ ApplicationWindow {
     MpvObject {
         id: mpv
         anchors.fill: parent
-        onMpvEvent: function(ev, args) { transport.event(ev, args) }
+        onMpvEvent: function(ev, args) {
+            console.log("DEBUG mpvEvent:", ev, JSON.stringify(args))
+            transport.event(ev, args)
+        }
     }
 
     //
