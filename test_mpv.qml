@@ -1,14 +1,15 @@
 import QtQuick
 import QtQuick.Window
+import QtQuick.Controls
 import com.stremio.libmpv 1.0
 
-Window {
+ApplicationWindow {
     id: root
     visible: true
     width: 1280
     height: 720
     title: "MPV Test"
-    color: "black"
+    color: "#0c0b11"
 
     MpvObject {
         id: mpv
