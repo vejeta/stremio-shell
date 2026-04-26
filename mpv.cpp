@@ -8,11 +8,12 @@
 
 #include <QtGlobal>
 #include <QOpenGLContext>
-#include <QOpenGLFunctions>
-#include <QGuiApplication>
-#include <QTimer>
 
+#include <QOpenGLFramebufferObject>
+
+#include <QGuiApplication>
 #include <QtQuick/QQuickWindow>
+#include <QtQuick/QQuickView>
 
 #if defined(Q_OS_WIN32)
 #include <windows.h>
@@ -41,8 +42,70 @@ static void *get_proc_address_mpv(void *ctx, const char *name)
 } // namespace
 
 
+class MpvRenderer : public QQuickFramebufferObject::Renderer
+{
+    MpvObject *obj;
+
+    public:
+    MpvRenderer(MpvObject *new_obj)
+        : obj{new_obj}
+    {
+        std::setlocale(LC_NUMERIC, "C");
+    }
+
+    virtual ~MpvRenderer()
+    {
+    }
+
+    QOpenGLFramebufferObject *createFramebufferObject(const QSize &size)
+    {
+        if (!obj->mpv_gl)
+        {
+            mpv_opengl_init_params gl_init_params{get_proc_address_mpv, nullptr, nullptr};
+
+            mpv_render_param display{MPV_RENDER_PARAM_INVALID, nullptr};
+#if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
+            if (QGuiApplication::platformName() == QStringLiteral("xcb")) {
+                display.type = MPV_RENDER_PARAM_X11_DISPLAY;
+                display.data = qGuiApp->nativeInterface<QNativeInterface::QX11Application>()->display();
+            }
+            if (QGuiApplication::platformName() == QStringLiteral("wayland")) {
+                display.type = MPV_RENDER_PARAM_WL_DISPLAY;
+                display.data = qGuiApp->nativeInterface<QNativeInterface::QWaylandApplication>()->display();
+            }
+#endif
+
+            mpv_render_param params[]{
+                {MPV_RENDER_PARAM_API_TYPE, const_cast<char *>(MPV_RENDER_API_TYPE_OPENGL)},
+                {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params},
+                display,
+                {MPV_RENDER_PARAM_INVALID, nullptr}};
+
+            if (mpv_render_context_create(&obj->mpv_gl, obj->mpv, params) < 0)
+                throw std::runtime_error("failed to initialize mpv GL context");
+            mpv_render_context_set_update_callback(obj->mpv_gl, on_mpv_redraw, obj);
+        }
+
+        return QQuickFramebufferObject::Renderer::createFramebufferObject(size);
+    }
+
+    void render()
+    {
+        QOpenGLFramebufferObject *fbo = framebufferObject();
+        mpv_opengl_fbo mpfbo{static_cast<int>(fbo->handle()), fbo->width(), fbo->height(), 0};
+        int flip_y{0};
+
+        mpv_render_param params[] = {
+            {MPV_RENDER_PARAM_OPENGL_FBO, &mpfbo},
+            {MPV_RENDER_PARAM_FLIP_Y, &flip_y},
+            {MPV_RENDER_PARAM_INVALID, nullptr}};
+
+        mpv_render_context_render(obj->mpv_gl, params);
+     }
+};
+
 MpvObject::MpvObject(QQuickItem * parent)
-    : QQuickItem(parent), mpv{mpv_create()}, mpv_gl(nullptr)
+    : QQuickFramebufferObject(parent), mpv{mpv_create()}, mpv_gl(nullptr)
 {
 #ifdef Q_OS_WIN32
   // Request Multimedia Class Schedule Service.
@@ -52,32 +115,18 @@ MpvObject::MpvObject(QQuickItem * parent)
     if (!mpv)
         throw std::runtime_error("could not create mpv context");
 
-    // Setup the callback that will make QtQuick update and redraw if there
-    // is a new video frame. Use a queued connection: this makes sure the
-    // doUpdate() function is run on the GUI thread.
     connect(this, &MpvObject::onUpdate, this, &MpvObject::doUpdate,
             Qt::QueuedConnection);
 
-    // Qt6 scene graph only renders when it detects visual changes.
-    // MPV content changes are invisible to the scene graph, so force
-    // continuous window repaints at display rate.
-    auto *renderTimer = new QTimer(this);
-    connect(renderTimer, &QTimer::timeout, this, &MpvObject::doUpdate);
-    renderTimer->start(16);
-
     initialize_mpv();
 
-    // The player is hidden by default. It is shown only when a video stream is available
     this->setVisible(false);
     this->observeProperty("vid");
-
-    // Connect to window when it becomes available
-    connect(this, &QQuickItem::windowChanged, this, &MpvObject::initMpvRenderer);
 }
 
 MpvObject::~MpvObject()
 {
-    if (mpv_gl) // only initialized if something got drawn
+    if (mpv_gl)
     {
         mpv_render_context_free(mpv_gl);
     }
@@ -85,84 +134,9 @@ MpvObject::~MpvObject()
     mpv_terminate_destroy(mpv);
 }
 
-void MpvObject::initMpvRenderer()
-{
-    if (!window() || m_rendererInitialized)
-        return;
-
-    // Create mpv render context on the first window assignment.
-    // This must happen with a valid OpenGL context, so we defer to
-    // beforeRendering (fires on render thread with GL context current).
-    connect(window(), &QQuickWindow::beforeRendering, this, [this]() {
-        if (mpv_gl)
-            return;
-
-        mpv_opengl_init_params gl_init_params{get_proc_address_mpv, nullptr, nullptr};
-
-        mpv_render_param display{MPV_RENDER_PARAM_INVALID, nullptr};
-#if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
-        if (QGuiApplication::platformName() == QStringLiteral("xcb")) {
-            display.type = MPV_RENDER_PARAM_X11_DISPLAY;
-            display.data = qGuiApp->nativeInterface<QNativeInterface::QX11Application>()->display();
-        }
-        if (QGuiApplication::platformName() == QStringLiteral("wayland")) {
-            display.type = MPV_RENDER_PARAM_WL_DISPLAY;
-            display.data = qGuiApp->nativeInterface<QNativeInterface::QWaylandApplication>()->display();
-        }
-#endif
-
-        mpv_render_param params[]{
-            {MPV_RENDER_PARAM_API_TYPE, const_cast<char *>(MPV_RENDER_API_TYPE_OPENGL)},
-            {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params},
-            display,
-            {MPV_RENDER_PARAM_INVALID, nullptr}};
-
-        if (mpv_render_context_create(&mpv_gl, mpv, params) < 0)
-            throw std::runtime_error("failed to initialize mpv GL context");
-        mpv_render_context_set_update_callback(mpv_gl, on_mpv_redraw, this);
-    }, Qt::DirectConnection);
-
-    // Render mpv as underlay: before scene graph draws QML content
-    connect(window(), &QQuickWindow::beforeRenderPassRecording,
-            this, &MpvObject::renderMpv, Qt::DirectConnection);
-
-    m_rendererInitialized = true;
-}
-
-void MpvObject::renderMpv()
-{
-    if (!window() || !mpv_gl)
-        return;
-
-    QSize size = window()->size() * window()->devicePixelRatio();
-
-    window()->beginExternalCommands();
-
-    // Query the actual FBO that Qt6 RHI is rendering to.
-    // In Qt6, this may NOT be FBO 0 — the RHI uses its own render target.
-    GLint currentFbo = 0;
-    QOpenGLContext::currentContext()->functions()->glGetIntegerv(
-        GL_FRAMEBUFFER_BINDING, &currentFbo);
-
-    mpv_opengl_fbo mpfbo{currentFbo, size.width(), size.height(), 0};
-    int flip_y{1};
-
-    mpv_render_param params[] = {
-        {MPV_RENDER_PARAM_OPENGL_FBO, &mpfbo},
-        {MPV_RENDER_PARAM_FLIP_Y, &flip_y},
-        {MPV_RENDER_PARAM_INVALID, nullptr}};
-
-    mpv_render_context_render(mpv_gl, params);
-
-    window()->endExternalCommands();
-}
-
 void MpvObject::initialize_mpv() {
-    // Qt sets the locale in the QGuiApplication constructor, but libmpv
-    // requires the LC_NUMERIC category to be set to "C", so change it back.
     std::setlocale(LC_NUMERIC, "C");
 
-    // terminal=yes brings us all the terminal logs; on windows it's much better with winpty (https://github.com/mpv-player/mpv/blob/master/DOCS/compile-windows.md)
     mpv_set_option_string(mpv, "terminal", "yes");
     mpv_set_option_string(mpv, "msg-level", "all=v");
 
@@ -170,28 +144,18 @@ void MpvObject::initialize_mpv() {
         throw std::runtime_error("could not initialize mpv context");
 
     mpv::qt::set_property(mpv, "vo", "libmpv");
-
-    // Enable opengl-hwdec-interop so we can set hwdec at runtime
     mpv::qt::set_property(mpv, "gpu-hwdec-interop", "auto");
 
-    // Set cache to a reasonable value
     mpv::qt::set_property(mpv, "cache-default", 15000);
     mpv::qt::set_property(mpv, "cache-backbuffer", 15000);
     mpv::qt::set_property(mpv, "cache-secs", 10);
 
-    // Visible app / stream names
     mpv::qt::set_property(mpv, "audio-client-name", QCoreApplication::applicationName());
     mpv::qt::set_property(mpv, "title", QCoreApplication::applicationName());
-
-    // Don't stop on audio output issues
     mpv::qt::set_property(mpv, "audio-fallback-to-null", "yes");
-
-    // User-visible application name used by some audio APIs (at least PulseAudio).
     mpv::qt::set_property(mpv, "audio-client-name", QCoreApplication::applicationName());
-    // User-visible stream title used by some audio APIs (at least PulseAudio and wasapi).
     mpv::qt::set_property(mpv, "title", QCoreApplication::applicationName());
 
-    // // Setup handling events from MPV
     mpv_set_wakeup_callback(mpv, wakeup, this);
 
     foreach (const QString &name, observed_properties) {
@@ -205,16 +169,13 @@ void MpvObject::on_update(void *ctx)
     emit self->onUpdate();
 }
 
-// connected to onUpdate(); signal makes sure it runs on the GUI thread
 void MpvObject::doUpdate()
 {
-    if (window())
-        window()->update();
+    update();
 }
 
 void MpvObject::command(const QVariant& params)
 {
-    // does mpv_command_node internally; maybe we should use async? However, it seems async is not really needed atm...
     mpv::qt::command(mpv, params);
 }
 
@@ -226,7 +187,6 @@ void MpvObject::setProperty(const QString& name, const QVariant& value)
 void MpvObject::observeProperty(const QString& name)
 {
     observed_properties.insert(name);
-    // NOTE: it's possible to use MPV_FORMAT_NONE to only observe the event change, without caring about value
     mpv_observe_property(mpv, 0, name.toStdString().c_str(), MPV_FORMAT_NODE);
 }
 
@@ -237,7 +197,6 @@ void MpvObject::wakeup(void *ctx)
 
 void MpvObject::on_mpv_events()
 {
-    // Process all events, until the event queue is empty.
     while (mpv) {
         mpv_event *event = mpv_wait_event(mpv, 0);
         if (event->event_id == MPV_EVENT_NONE) {
@@ -256,17 +215,12 @@ void MpvObject::handle_mpv_event(mpv_event *event) {
         eventJson["error"] = QString(mpv_error_string(event->error));
 
     switch (event->event_id) {
-        // WARNING: we are not handling the following event types, it does not seem we need them:
-        // case MPV_EVENT_LOG_MESSAGE:
-        // case MPV_EVENT_CLIENT_MESSAGE:
         case MPV_EVENT_PROPERTY_CHANGE: {
             mpv_event_property *prop = (mpv_event_property *) event->data;
             eventJson["name"] = QString(prop->name);
 
-            // NOTE: because we always observe as node, we can handle only that case; we are handling the others, to be safe :)
             switch (prop->format) {
             case MPV_FORMAT_NODE:
-                // Show the player only if there is a video stream
                 if(((mpv_node *)prop->data)->format == MPV_FORMAT_INT64 && eventJson["name"] == "vid")
                     this->setVisible(true);
                 eventJson["data"] = QJsonValue::fromVariant(mpv::qt::node_to_variant((mpv_node *) prop->data));
@@ -288,7 +242,6 @@ void MpvObject::handle_mpv_event(mpv_event *event) {
             break;
         }
         case MPV_EVENT_END_FILE: {
-            // Hide player back when playback is finished
             this->setVisible(false);
             mpv_event_end_file *endFile = (mpv_event_end_file *)event->data;
             switch (endFile->reason) {
@@ -307,7 +260,7 @@ void MpvObject::handle_mpv_event(mpv_event *event) {
             break;
         }
         case MPV_EVENT_SHUTDOWN: {
-            if (mpv_gl) // only initialized if something got drawn
+            if (mpv_gl)
             {
                 mpv_render_context_free(mpv_gl);
                 mpv_gl = nullptr;
@@ -325,4 +278,9 @@ void MpvObject::handle_mpv_event(mpv_event *event) {
 
 QVariant MpvObject::getProperty(const QString& name) {
     return mpv::qt::get_property(mpv, name);
+}
+
+QQuickFramebufferObject::Renderer *MpvObject::createRenderer() const
+{
+    return new MpvRenderer(const_cast<MpvObject *>(this));
 }

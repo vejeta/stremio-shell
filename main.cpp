@@ -51,8 +51,11 @@ int main(int argc, char **argv)
 {
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--autoplay-policy=no-user-gesture-required");
 
-    // Qt6: Force OpenGL backend for QQuickFramebufferObject (used by MPV renderer).
-    // Without this, Qt6 RHI may choose Vulkan/Metal and MPV frames won't update.
+    // Qt6: Force single-threaded render loop. The threaded render loop
+    // has synchronization issues with mpv's FBO texture updates.
+    qputenv("QSG_RENDER_LOOP", "basic");
+
+    // Qt6: Force OpenGL backend for mpv rendering.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 
     // Qt6: QtWebEngineQuick::initialize() must be called before QApplication
