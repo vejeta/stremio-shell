@@ -28,8 +28,7 @@ ApplicationWindow {
 
     property bool quitting: false
 
-    // Qt6: transparent so mpv underlay (rendered via beforeRenderPassRecording) is visible
-    color: "transparent";
+    color: "#0c0b11";
     title: appTitle
 
     property var previousVisibility: Window.Windowed

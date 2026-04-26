@@ -61,6 +61,7 @@ set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
 
 find_package(Qt${QT_DEFAULT_MAJOR_VERSION} COMPONENTS Widgets Network Qml Quick WebEngineQuick WebChannel DBus OpenGL REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(MpvQt REQUIRED)
 find_package(MPV REQUIRED)
 
 if(APPLE)
@@ -122,6 +123,7 @@ target_link_libraries(${PROJECT_NAME} LINK_PUBLIC
   Qt${QT_DEFAULT_MAJOR_VERSION}::OpenGL
   SingleApplication::SingleApplication
   OpenSSL::Crypto
+  MpvQt::MpvQt
   ${MPV_LIBRARY}
 )
 
