@@ -59,8 +59,7 @@ add_subdirectory(deps/singleapplication)
 
 set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
 
-# DEBUG: WebEngineQuick removed to test mpv rendering without Chromium GPU
-find_package(Qt${QT_DEFAULT_MAJOR_VERSION} COMPONENTS Widgets Network Qml Quick WebChannel DBus OpenGL REQUIRED)
+find_package(Qt${QT_DEFAULT_MAJOR_VERSION} COMPONENTS Widgets Network Qml Quick WebEngineQuick WebChannel DBus OpenGL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(MpvQt REQUIRED)
 find_package(MPV REQUIRED)
@@ -118,7 +117,7 @@ target_link_libraries(${PROJECT_NAME} LINK_PUBLIC
   Qt${QT_DEFAULT_MAJOR_VERSION}::Quick
   Qt${QT_DEFAULT_MAJOR_VERSION}::Network
   Qt${QT_DEFAULT_MAJOR_VERSION}::Widgets
-  # Qt${QT_DEFAULT_MAJOR_VERSION}::WebEngineQuick  # DEBUG: disabled
+  Qt${QT_DEFAULT_MAJOR_VERSION}::WebEngineQuick
   Qt${QT_DEFAULT_MAJOR_VERSION}::WebChannel
   Qt${QT_DEFAULT_MAJOR_VERSION}::DBus
   Qt${QT_DEFAULT_MAJOR_VERSION}::OpenGL

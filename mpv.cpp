@@ -28,13 +28,6 @@ MpvObject::MpvObject(QQuickItem *parent)
     Q_EMIT MpvAbstractItem::setProperty("audio-fallback-to-null", "yes");
 
     Q_EMIT MpvAbstractItem::observeProperty("vid", MPV_FORMAT_NODE);
-
-    // DEBUG: auto-play a test file
-    connect(this, &MpvAbstractItem::ready, this, [this]() {
-        this->setVisible(true);
-        Q_EMIT MpvAbstractItem::command(QStringList{"loadfile",
-            "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"});
-    });
 }
 
 void MpvObject::setupConnections()

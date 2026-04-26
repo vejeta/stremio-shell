@@ -1,6 +1,6 @@
 import QtQuick
-// import QtWebEngine  // DEBUG: disabled
-// import QtWebChannel  // DEBUG: disabled
+import QtWebEngine
+import QtWebChannel
 import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -375,15 +375,6 @@ ApplicationWindow {
         }
     }
 
-    // DEBUG: WebEngineView disabled to test if it interferes with mpv rendering
-    Item {
-        id: webView;
-        visible: false
-        property string mainUrl: ""
-        property int tries: 0
-        readonly property int maxTries: 20
-    }
-    /*
     WebEngineView {
         id: webView;
 
@@ -535,9 +526,9 @@ ApplicationWindow {
     }
     */
 
-    // WebChannel {
-    //     id: wChannel
-    // }
+    WebChannel {
+        id: wChannel
+    }
 
     //
     // Splash screen
@@ -545,7 +536,6 @@ ApplicationWindow {
     //
     Rectangle {
         id: splashScreen;
-        visible: false;  // DEBUG: hide splash to test video
         color: "#0c0b11";
         anchors.fill: parent;
         Image {
