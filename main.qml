@@ -305,6 +305,7 @@ ApplicationWindow {
     MpvObject {
         id: mpv
         anchors.fill: parent
+        z: 10  // DEBUG: put video ON TOP of WebEngineView to confirm rendering works
         onMpvEvent: function(ev, args) { transport.event(ev, args) }
     }
 
