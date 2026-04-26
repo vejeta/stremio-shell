@@ -15,7 +15,13 @@ ApplicationWindow {
         id: mpv
         anchors.fill: parent
         visible: true
-        Component.onCompleted: {
+    }
+
+    Timer {
+        interval: 2000
+        running: true
+        onTriggered: {
+            console.log("Loading test stream...")
             mpv.command(["loadfile", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"])
         }
     }
