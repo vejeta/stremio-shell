@@ -8,6 +8,7 @@
 
 #include <QtGlobal>
 #include <QOpenGLContext>
+#include <QOpenGLFunctions>
 
 #include <QOpenGLFramebufferObject>
 
@@ -107,6 +108,9 @@ class MpvRenderer : public QQuickFramebufferObject::Renderer
             {MPV_RENDER_PARAM_INVALID, nullptr}};
 
         mpv_render_context_render(obj->mpv_gl, params);
+
+        // Qt6 RHI may not see FBO texture changes without explicit GL sync
+        QOpenGLContext::currentContext()->functions()->glFlush();
      }
 };
 
