@@ -53,13 +53,6 @@ int main(int argc, char **argv)
 {
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--autoplay-policy=no-user-gesture-required");
 
-    // Qt6: Enable alpha buffer so WebEngineView transparency works
-    // over MpvObject underneath. Without this, WebEngineView is opaque.
-    QSurfaceFormat format;
-    format.setAlphaBufferSize(8);
-    QSurfaceFormat::setDefaultFormat(format);
-    QQuickWindow::setDefaultAlphaBuffer(true);
-
     // Qt6: Force OpenGL backend for mpv rendering.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 
