@@ -15,29 +15,25 @@ MpvObject::MpvObject(QQuickItem *parent)
 
     setupConnections();
 
-    // Wait for MpvQt renderer to be ready before configuring mpv
+    // Set properties via signals (like Haruna does) — these go through
+    // QueuedConnection to the worker thread where MpvController lives.
+    // Must use Q_EMIT setProperty(), NOT ctrl->setProperty() directly.
+    Q_EMIT MpvAbstractItem::setProperty("vo", "libmpv");
+    Q_EMIT MpvAbstractItem::setProperty("gpu-hwdec-interop", "auto");
+    Q_EMIT MpvAbstractItem::setProperty("terminal", "yes");
+    Q_EMIT MpvAbstractItem::setProperty("msg-level", "all=v");
+    Q_EMIT MpvAbstractItem::setProperty("cache-secs", 10);
+    Q_EMIT MpvAbstractItem::setProperty("audio-client-name", QCoreApplication::applicationName());
+    Q_EMIT MpvAbstractItem::setProperty("title", QCoreApplication::applicationName());
+    Q_EMIT MpvAbstractItem::setProperty("audio-fallback-to-null", "yes");
+
+    Q_EMIT MpvAbstractItem::observeProperty("vid", MPV_FORMAT_NODE);
+
+    // DEBUG: auto-play a test file
     connect(this, &MpvAbstractItem::ready, this, [this]() {
-        auto *ctrl = mpvController();
-
-        ctrl->setProperty("vo", "libmpv");
-        ctrl->setProperty("gpu-hwdec-interop", "auto");
-        ctrl->setProperty("terminal", "yes");
-        ctrl->setProperty("msg-level", "all=v");
-
-        ctrl->setProperty("cache-default", 15000);
-        ctrl->setProperty("cache-backbuffer", 15000);
-        ctrl->setProperty("cache-secs", 10);
-
-        ctrl->setProperty("audio-client-name", QCoreApplication::applicationName());
-        ctrl->setProperty("title", QCoreApplication::applicationName());
-        ctrl->setProperty("audio-fallback-to-null", "yes");
-
-        observeProperty("vid");
-
-        // DEBUG: auto-play a test file to check rendering without WebEngineView
         this->setVisible(true);
-        ctrl->command(QVariant(QStringList{"loadfile",
-            "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"}));
+        Q_EMIT MpvAbstractItem::command(QStringList{"loadfile",
+            "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"});
     });
 }
 
