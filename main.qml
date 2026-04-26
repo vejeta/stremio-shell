@@ -375,13 +375,22 @@ ApplicationWindow {
         }
     }
 
+    // DEBUG: WebEngineView disabled to test if it interferes with mpv rendering
+    Item {
+        id: webView;
+        visible: false
+        property string mainUrl: ""
+        property int tries: 0
+        readonly property int maxTries: 20
+    }
+    /*
     WebEngineView {
         id: webView;
 
         focus: true
 
         readonly property string mainUrl: getWebUrl()
-        
+
         url: webView.mainUrl;
         anchors.fill: parent
         backgroundColor: "transparent";
@@ -524,6 +533,7 @@ ApplicationWindow {
         }
         webChannel: wChannel
     }
+    */
 
     WebChannel {
         id: wChannel

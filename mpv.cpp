@@ -33,6 +33,11 @@ MpvObject::MpvObject(QQuickItem *parent)
         ctrl->setProperty("audio-fallback-to-null", "yes");
 
         observeProperty("vid");
+
+        // DEBUG: auto-play a test file to check rendering without WebEngineView
+        this->setVisible(true);
+        ctrl->command(QVariant(QStringList{"loadfile",
+            "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"}));
     });
 }
 
