@@ -138,7 +138,13 @@ void MpvObject::renderMpv()
 
     window()->beginExternalCommands();
 
-    mpv_opengl_fbo mpfbo{0, size.width(), size.height(), 0};
+    // Query the actual FBO that Qt6 RHI is rendering to.
+    // In Qt6, this may NOT be FBO 0 — the RHI uses its own render target.
+    GLint currentFbo = 0;
+    QOpenGLContext::currentContext()->functions()->glGetIntegerv(
+        GL_FRAMEBUFFER_BINDING, &currentFbo);
+
+    mpv_opengl_fbo mpfbo{currentFbo, size.width(), size.height(), 0};
     int flip_y{1};
 
     mpv_render_param params[] = {
