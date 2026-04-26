@@ -36,7 +36,7 @@ int main(int argc, char **argv)
     ctx->setContextProperty("systemTray", systemTray);
     ctx->setContextProperty("debug", false);
 
-    engine.load(QUrl(QStringLiteral("qrc:/test_mpv.qml")));
+    engine.load(QUrl(QStringLiteral("qrc:/main.qml")));
 
     return app.exec();
 }
