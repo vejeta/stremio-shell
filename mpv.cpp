@@ -8,12 +8,10 @@
 
 #include <QtGlobal>
 #include <QOpenGLContext>
-
-#include <QOpenGLFramebufferObject>
-
+#include <QOpenGLFunctions>
 #include <QGuiApplication>
+
 #include <QtQuick/QQuickWindow>
-#include <QtQuick/QQuickView>
 
 #if defined(Q_OS_WIN32)
 #include <windows.h>
@@ -42,78 +40,17 @@ static void *get_proc_address_mpv(void *ctx, const char *name)
 } // namespace
 
 
-class MpvRenderer : public QQuickFramebufferObject::Renderer
-{
-    MpvObject *obj;
-
-    public:
-    MpvRenderer(MpvObject *new_obj)
-        : obj{new_obj}
-    {
-        std::setlocale(LC_NUMERIC, "C");
-    }
-
-    virtual ~MpvRenderer()
-    {
-    }
-
-    QOpenGLFramebufferObject *createFramebufferObject(const QSize &size)
-    {
-        if (!obj->mpv_gl)
-        {
-            mpv_opengl_init_params gl_init_params{get_proc_address_mpv, nullptr, nullptr};
-
-            mpv_render_param display{MPV_RENDER_PARAM_INVALID, nullptr};
-#if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
-            if (QGuiApplication::platformName() == QStringLiteral("xcb")) {
-                display.type = MPV_RENDER_PARAM_X11_DISPLAY;
-                display.data = qGuiApp->nativeInterface<QNativeInterface::QX11Application>()->display();
-            }
-            if (QGuiApplication::platformName() == QStringLiteral("wayland")) {
-                display.type = MPV_RENDER_PARAM_WL_DISPLAY;
-                display.data = qGuiApp->nativeInterface<QNativeInterface::QWaylandApplication>()->display();
-            }
-#endif
-
-            mpv_render_param params[]{
-                {MPV_RENDER_PARAM_API_TYPE, const_cast<char *>(MPV_RENDER_API_TYPE_OPENGL)},
-                {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params},
-                display,
-                {MPV_RENDER_PARAM_INVALID, nullptr}};
-
-            if (mpv_render_context_create(&obj->mpv_gl, obj->mpv, params) < 0)
-                throw std::runtime_error("failed to initialize mpv GL context");
-            mpv_render_context_set_update_callback(obj->mpv_gl, on_mpv_redraw, obj);
-        }
-
-        return QQuickFramebufferObject::Renderer::createFramebufferObject(size);
-    }
-
-    void render()
-    {
-        QOpenGLFramebufferObject *fbo = framebufferObject();
-        mpv_opengl_fbo mpfbo{static_cast<int>(fbo->handle()), fbo->width(), fbo->height(), 0};
-        int flip_y{1};
-
-        mpv_render_param params[] = {
-            {MPV_RENDER_PARAM_OPENGL_FBO, &mpfbo},
-            {MPV_RENDER_PARAM_FLIP_Y, &flip_y},
-            {MPV_RENDER_PARAM_INVALID, nullptr}};
-
-        mpv_render_context_render(obj->mpv_gl, params);
-     }
-};
-
 MpvObject::MpvObject(QQuickItem * parent)
-    : QQuickFramebufferObject(parent), mpv{mpv_create()}, mpv_gl(nullptr)
+    : QQuickItem(parent), mpv{mpv_create()}, mpv_gl(nullptr)
 {
 #ifdef Q_OS_WIN32
-  // Request Multimedia Class Schedule Service.
-  DwmEnableMMCSS(TRUE);
+    DwmEnableMMCSS(TRUE);
 #endif
 
     if (!mpv)
         throw std::runtime_error("could not create mpv context");
+
+    std::setlocale(LC_NUMERIC, "C");
 
     connect(this, &MpvObject::onUpdate, this, &MpvObject::doUpdate,
             Qt::QueuedConnection);
@@ -122,6 +59,8 @@ MpvObject::MpvObject(QQuickItem * parent)
 
     this->setVisible(false);
     this->observeProperty("vid");
+
+    connect(this, &QQuickItem::windowChanged, this, &MpvObject::handleWindowChanged);
 }
 
 MpvObject::~MpvObject()
@@ -134,9 +73,90 @@ MpvObject::~MpvObject()
     mpv_terminate_destroy(mpv);
 }
 
-void MpvObject::initialize_mpv() {
-    std::setlocale(LC_NUMERIC, "C");
+// Following the Qt6 official "OpenGL Under QML" example pattern:
+// https://doc.qt.io/qt-6/qtquick-scenegraph-openglunderqml-example.html
+void MpvObject::handleWindowChanged(QQuickWindow *win)
+{
+    if (!win)
+        return;
 
+    connect(win, &QQuickWindow::beforeSynchronizing, this, &MpvObject::sync,
+            Qt::DirectConnection);
+    connect(win, &QQuickWindow::sceneGraphInvalidated, this, &MpvObject::cleanup,
+            Qt::DirectConnection);
+    connect(win, &QQuickWindow::beforeRenderPassRecording, this, &MpvObject::renderMpv,
+            Qt::DirectConnection);
+}
+
+void MpvObject::sync()
+{
+    // Create render context on first sync (GL context is current on render thread)
+    if (!mpv_gl)
+    {
+        mpv_opengl_init_params gl_init_params{get_proc_address_mpv, nullptr, nullptr};
+
+        mpv_render_param display{MPV_RENDER_PARAM_INVALID, nullptr};
+#if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
+        if (QGuiApplication::platformName() == QStringLiteral("xcb")) {
+            display.type = MPV_RENDER_PARAM_X11_DISPLAY;
+            display.data = qGuiApp->nativeInterface<QNativeInterface::QX11Application>()->display();
+        }
+        if (QGuiApplication::platformName() == QStringLiteral("wayland")) {
+            display.type = MPV_RENDER_PARAM_WL_DISPLAY;
+            display.data = qGuiApp->nativeInterface<QNativeInterface::QWaylandApplication>()->display();
+        }
+#endif
+
+        mpv_render_param params[]{
+            {MPV_RENDER_PARAM_API_TYPE, const_cast<char *>(MPV_RENDER_API_TYPE_OPENGL)},
+            {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params},
+            display,
+            {MPV_RENDER_PARAM_INVALID, nullptr}};
+
+        if (mpv_render_context_create(&mpv_gl, mpv, params) < 0)
+            throw std::runtime_error("failed to initialize mpv GL context");
+        mpv_render_context_set_update_callback(mpv_gl, on_mpv_redraw, this);
+    }
+}
+
+void MpvObject::renderMpv()
+{
+    if (!mpv_gl)
+        return;
+
+    QQuickWindow *win = window();
+    QSize size = win->size() * win->devicePixelRatio();
+
+    win->beginExternalCommands();
+
+    // Render to whatever FBO Qt6 RHI is currently targeting
+    GLint currentFbo = 0;
+    QOpenGLContext::currentContext()->functions()->glGetIntegerv(
+        GL_FRAMEBUFFER_BINDING, &currentFbo);
+
+    mpv_opengl_fbo mpfbo{currentFbo, size.width(), size.height(), 0};
+    int flip_y{1};
+
+    mpv_render_param params[] = {
+        {MPV_RENDER_PARAM_OPENGL_FBO, &mpfbo},
+        {MPV_RENDER_PARAM_FLIP_Y, &flip_y},
+        {MPV_RENDER_PARAM_INVALID, nullptr}};
+
+    mpv_render_context_render(mpv_gl, params);
+
+    win->endExternalCommands();
+}
+
+void MpvObject::cleanup()
+{
+    if (mpv_gl)
+    {
+        mpv_render_context_free(mpv_gl);
+        mpv_gl = nullptr;
+    }
+}
+
+void MpvObject::initialize_mpv() {
     mpv_set_option_string(mpv, "terminal", "yes");
     mpv_set_option_string(mpv, "msg-level", "all=v");
 
@@ -153,8 +173,6 @@ void MpvObject::initialize_mpv() {
     mpv::qt::set_property(mpv, "audio-client-name", QCoreApplication::applicationName());
     mpv::qt::set_property(mpv, "title", QCoreApplication::applicationName());
     mpv::qt::set_property(mpv, "audio-fallback-to-null", "yes");
-    mpv::qt::set_property(mpv, "audio-client-name", QCoreApplication::applicationName());
-    mpv::qt::set_property(mpv, "title", QCoreApplication::applicationName());
 
     mpv_set_wakeup_callback(mpv, wakeup, this);
 
@@ -171,7 +189,8 @@ void MpvObject::on_update(void *ctx)
 
 void MpvObject::doUpdate()
 {
-    update();
+    if (window())
+        window()->update();
 }
 
 void MpvObject::command(const QVariant& params)
@@ -278,15 +297,4 @@ void MpvObject::handle_mpv_event(mpv_event *event) {
 
 QVariant MpvObject::getProperty(const QString& name) {
     return mpv::qt::get_property(mpv, name);
-}
-
-QQuickFramebufferObject::Renderer *MpvObject::createRenderer() const
-{
-    // Qt6: mirrorVertically forces the scene graph to re-read the FBO
-    // texture on every frame (to apply the flip). Without this, the RHI
-    // may cache the first frame and never update the displayed texture.
-    window()->setPersistentGraphics(true);
-    window()->setPersistentSceneGraph(true);
-    const_cast<MpvObject *>(this)->setMirrorVertically(true);
-    return new MpvRenderer(const_cast<MpvObject *>(this));
 }

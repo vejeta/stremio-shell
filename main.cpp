@@ -51,10 +51,6 @@ int main(int argc, char **argv)
 {
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--autoplay-policy=no-user-gesture-required");
 
-    // Qt6: Force single-threaded render loop. The threaded render loop
-    // has synchronization issues with mpv's FBO texture updates.
-    qputenv("QSG_RENDER_LOOP", "basic");
-
     // Qt6: Force OpenGL backend for mpv rendering.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 
