@@ -10,8 +10,7 @@ MpvObject::MpvObject(QQuickItem *parent)
 {
     std::setlocale(LC_NUMERIC, "C");
 
-    // The player is hidden by default. It is shown only when a video stream is available
-    this->setVisible(false);
+    // Visibility controlled from QML (visible: false, set true when vid track active)
 
     setupConnections();
 
@@ -48,10 +47,7 @@ void MpvObject::onPropertyChanged(const QString &property, const QVariant &value
     eventJson["name"] = property;
     eventJson["data"] = QJsonValue::fromVariant(value);
 
-    // Show the player only if there is a video stream
-    if (property == "vid" && value.canConvert<qlonglong>())
-        this->setVisible(true);
-
+    // Visibility controlled from QML (z:2 on top of WebEngineView)
     Q_EMIT mpvEvent("mpv-prop-change", eventJson);
 }
 
@@ -62,8 +58,7 @@ void MpvObject::onFileLoaded()
 
 void MpvObject::onEndFile(const QString &reason)
 {
-    this->setVisible(false);
-
+    // Visibility controlled from QML
     QJsonObject eventJson;
     eventJson["reason"] = reason;
     Q_EMIT mpvEvent("mpv-event-ended", eventJson);

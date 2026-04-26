@@ -306,7 +306,18 @@ ApplicationWindow {
         id: mpv
         anchors.fill: parent
         z: 2
-        onMpvEvent: function(ev, args) { transport.event(ev, args) }
+        visible: false
+        onMpvEvent: function(ev, args) {
+            // Show MpvObject when video track is active
+            if (ev === "mpv-prop-change" && args.name === "vid" && typeof args.data === "number") {
+                mpv.visible = true
+            }
+            // Hide when playback ends
+            if (ev === "mpv-event-ended") {
+                mpv.visible = false
+            }
+            transport.event(ev, args)
+        }
     }
 
     //
