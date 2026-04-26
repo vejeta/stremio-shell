@@ -10,6 +10,7 @@
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QGuiApplication>
+#include <QTimer>
 
 #include <QtQuick/QQuickWindow>
 
@@ -56,6 +57,13 @@ MpvObject::MpvObject(QQuickItem * parent)
     // doUpdate() function is run on the GUI thread.
     connect(this, &MpvObject::onUpdate, this, &MpvObject::doUpdate,
             Qt::QueuedConnection);
+
+    // Qt6 scene graph only renders when it detects visual changes.
+    // MPV content changes are invisible to the scene graph, so force
+    // continuous window repaints at display rate.
+    auto *renderTimer = new QTimer(this);
+    connect(renderTimer, &QTimer::timeout, this, &MpvObject::doUpdate);
+    renderTimer->start(16);
 
     initialize_mpv();
 
