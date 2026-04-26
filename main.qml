@@ -346,6 +346,15 @@ ApplicationWindow {
         pulseOpacity.running = false
         removeSplashTimer.running = false
         webView.webChannel.registerObject( 'transport', transport )
+
+        // DEBUG: force entire web page to be semi-transparent red
+        // If video shows through red tint = WebEngineView compositing works
+        // If no video visible = WebEngineView is fundamentally opaque in Qt6
+        webView.runJavaScript(
+            "document.documentElement.style.backgroundColor = 'rgba(255,0,0,0.3)';" +
+            "document.body.style.backgroundColor = 'transparent';"
+        )
+
         // Try-catch to be able to return the error as result, but still throw it in the client context
         // so it can be caught and reported
         var injectedJS = "try { initShellComm() } " +
