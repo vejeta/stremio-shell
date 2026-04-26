@@ -1,5 +1,7 @@
 #include <QQmlApplicationEngine>
-#include <QtWebEngineQuick>
+#include <QQmlContext>
+// DEBUG: WebEngine completely removed to test mpv rendering
+// #include <QtWebEngineQuick>
 #include <QQuickWindow>
 
 #include <clocale>

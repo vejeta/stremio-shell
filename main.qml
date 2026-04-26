@@ -1,6 +1,6 @@
 import QtQuick
-import QtWebEngine
-import QtWebChannel
+// import QtWebEngine  // DEBUG: disabled
+// import QtWebChannel  // DEBUG: disabled
 import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -535,9 +535,9 @@ ApplicationWindow {
     }
     */
 
-    WebChannel {
-        id: wChannel
-    }
+    // WebChannel {
+    //     id: wChannel
+    // }
 
     //
     // Splash screen
