@@ -524,7 +524,6 @@ ApplicationWindow {
         }
         webChannel: wChannel
     }
-    */
 
     WebChannel {
         id: wChannel
