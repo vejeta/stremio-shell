@@ -129,10 +129,15 @@ void MpvObject::renderMpv()
 
     win->beginExternalCommands();
 
+    auto *f = QOpenGLContext::currentContext()->functions();
+
+    // DEBUG: paint bright red to confirm underlay rendering is visible
+    f->glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    f->glClear(GL_COLOR_BUFFER_BIT);
+
     // Render to whatever FBO Qt6 RHI is currently targeting
     GLint currentFbo = 0;
-    QOpenGLContext::currentContext()->functions()->glGetIntegerv(
-        GL_FRAMEBUFFER_BINDING, &currentFbo);
+    f->glGetIntegerv(GL_FRAMEBUFFER_BINDING, &currentFbo);
 
     mpv_opengl_fbo mpfbo{currentFbo, size.width(), size.height(), 0};
     int flip_y{1};
