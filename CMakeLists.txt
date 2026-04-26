@@ -129,12 +129,14 @@ target_link_libraries(${PROJECT_NAME} LINK_PUBLIC
 )
 
 # Minimal mpv test binary (no stremio dependencies)
-add_executable(test_mpv test_mpv.cpp mpv.cpp qml.qrc)
+add_executable(test_mpv test_mpv.cpp mpv.cpp stremioprocess.cpp screensaver.cpp systemtray.cpp qclipboardproxy.cpp qml.qrc)
 target_include_directories(test_mpv PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${MPV_INCLUDE_DIR})
 target_link_libraries(test_mpv LINK_PUBLIC
   Qt${QT_DEFAULT_MAJOR_VERSION}::Qml
   Qt${QT_DEFAULT_MAJOR_VERSION}::Quick
   Qt${QT_DEFAULT_MAJOR_VERSION}::Widgets
+  Qt${QT_DEFAULT_MAJOR_VERSION}::Network
+  Qt${QT_DEFAULT_MAJOR_VERSION}::DBus
   Qt${QT_DEFAULT_MAJOR_VERSION}::OpenGL
   MpvQt::MpvQt
   ${MPV_LIBRARY}
