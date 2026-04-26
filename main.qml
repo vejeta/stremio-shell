@@ -305,10 +305,11 @@ ApplicationWindow {
     MpvObject {
         id: mpv
         anchors.fill: parent
-        onMpvEvent: function(ev, args) {
-            console.log("DEBUG mpvEvent:", ev, JSON.stringify(args))
-            transport.event(ev, args)
-        }
+        // Qt6: MpvObject must be above WebEngineView because WebEngineView
+        // transparency is broken in Qt6. Mouse events pass through since
+        // QQuickFramebufferObject doesn't capture input.
+        z: 2
+        onMpvEvent: function(ev, args) { transport.event(ev, args) }
     }
 
     //
