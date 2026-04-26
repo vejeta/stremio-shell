@@ -51,7 +51,7 @@ void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
 
 int main(int argc, char **argv)
 {
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--autoplay-policy=no-user-gesture-required --disable-gpu-compositing");
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--autoplay-policy=no-user-gesture-required");
 
     // Qt6: Enable alpha buffer so WebEngineView transparency works
     // over MpvObject underneath. Without this, WebEngineView is opaque.

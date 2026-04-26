@@ -305,10 +305,6 @@ ApplicationWindow {
     MpvObject {
         id: mpv
         anchors.fill: parent
-        // Qt6: MpvObject must be above WebEngineView because WebEngineView
-        // transparency is broken in Qt6. Mouse events pass through since
-        // QQuickFramebufferObject doesn't capture input.
-        z: 2
         onMpvEvent: function(ev, args) { transport.event(ev, args) }
     }
 
@@ -388,7 +384,7 @@ ApplicationWindow {
 
         url: webView.mainUrl;
         anchors.fill: parent
-        backgroundColor: "transparent";
+        backgroundColor: Qt.rgba(0, 0, 0, 0);
         property int tries: 0
 
         readonly property int maxTries: 20
@@ -406,7 +402,7 @@ ApplicationWindow {
 
         onLoadingChanged: function(loadRequest) {
             // hack for webEngineView changing it's background color on crashes
-            webView.backgroundColor = "transparent"
+            webView.backgroundColor = Qt.rgba(0, 0, 0, 0)
 
             var successfullyLoaded = loadRequest.status == WebEngineView.LoadSucceededStatus
             if (successfullyLoaded || webView.tries > 0) {
