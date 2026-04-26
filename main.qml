@@ -545,6 +545,7 @@ ApplicationWindow {
     //
     Rectangle {
         id: splashScreen;
+        visible: false;  // DEBUG: hide splash to test video
         color: "#0c0b11";
         anchors.fill: parent;
         Image {
