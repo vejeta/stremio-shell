@@ -12,6 +12,7 @@
 #include <QOpenGLFramebufferObject>
 
 #include <QGuiApplication>
+#include <QTimer>
 #include <QtQuick/QQuickWindow>
 #include <QtQuick/QQuickView>
 
@@ -126,6 +127,12 @@ MpvObject::MpvObject(QQuickItem * parent)
     connect(this, &MpvObject::onUpdate, this, &MpvObject::doUpdate,
             Qt::QueuedConnection);
 
+    // Qt6: force continuous rendering — the scene graph may not
+    // schedule repaints for externally-updated FBO content
+    auto *renderTimer = new QTimer(this);
+    connect(renderTimer, &QTimer::timeout, this, &MpvObject::doUpdate);
+    renderTimer->start(16);
+
     initialize_mpv();
 
     // The player is hidden by default. It is shown only whe a video stream is available
@@ -195,6 +202,8 @@ void MpvObject::on_update(void *ctx)
 void MpvObject::doUpdate()
 {
     update();
+    if (window())
+        window()->update();
 }
 
 void MpvObject::command(const QVariant& params)
