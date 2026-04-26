@@ -54,8 +54,8 @@ int main(int argc, char **argv)
     // Qt6: Force OpenGL backend for mpv rendering.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 
-    // Qt6: QtWebEngineQuick::initialize() must be called before QApplication
-    QtWebEngineQuick::initialize();
+    // DEBUG: disabled to test if WebEngine GPU init interferes with mpv
+    // QtWebEngineQuick::initialize();
 
     Application::setApplicationName("Stremio");
     Application::setApplicationVersion(STREMIO_SHELL_VERSION);
