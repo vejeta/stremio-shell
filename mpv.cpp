@@ -93,7 +93,7 @@ class MpvRenderer : public QQuickFramebufferObject::Renderer
     {
         QOpenGLFramebufferObject *fbo = framebufferObject();
         mpv_opengl_fbo mpfbo{static_cast<int>(fbo->handle()), fbo->width(), fbo->height(), 0};
-        int flip_y{0};
+        int flip_y{1};
 
         mpv_render_param params[] = {
             {MPV_RENDER_PARAM_OPENGL_FBO, &mpfbo},
@@ -282,5 +282,11 @@ QVariant MpvObject::getProperty(const QString& name) {
 
 QQuickFramebufferObject::Renderer *MpvObject::createRenderer() const
 {
+    // Qt6: mirrorVertically forces the scene graph to re-read the FBO
+    // texture on every frame (to apply the flip). Without this, the RHI
+    // may cache the first frame and never update the displayed texture.
+    window()->setPersistentGraphics(true);
+    window()->setPersistentSceneGraph(true);
+    const_cast<MpvObject *>(this)->setMirrorVertically(true);
     return new MpvRenderer(const_cast<MpvObject *>(this));
 }
