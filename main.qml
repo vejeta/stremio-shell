@@ -304,11 +304,18 @@ ApplicationWindow {
     //
     MpvObject {
         id: mpv
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: mpv.showControls ? 70 : 0
         z: 2
         visible: false
 
         property bool videoActive: false
+        property bool showControls: false
+
+        Behavior on anchors.bottomMargin { NumberAnimation { duration: 200 } }
 
         onMpvEvent: function(ev, args) {
             if (ev === "mpv-prop-change" && args.name === "vid" && typeof args.data === "number") {
@@ -318,36 +325,30 @@ ApplicationWindow {
             if (ev === "mpv-event-ended") {
                 mpv.videoActive = false
                 mpv.visible = false
+                mpv.showControls = false
             }
             transport.event(ev, args)
         }
     }
 
-    // Qt6: WebEngineView is opaque, MpvObject is on top (z:2).
-    // This overlay detects mouse movement to toggle MpvObject visibility,
-    // revealing web controls underneath. Accepts no clicks — they pass through.
+    // Qt6: Detect mouse to reveal web controls below MpvObject
     MouseArea {
         anchors.fill: parent
         z: 3
         hoverEnabled: true
         acceptedButtons: Qt.NoButton
+        visible: mpv.videoActive
 
         onPositionChanged: {
-            if (mpv.videoActive) {
-                mpv.visible = false
-                controlsTimer.restart()
-            }
+            mpv.showControls = true
+            controlsTimer.restart()
         }
     }
 
     Timer {
         id: controlsTimer
         interval: 3000
-        onTriggered: {
-            if (mpv.videoActive) {
-                mpv.visible = true
-            }
-        }
+        onTriggered: mpv.showControls = false
     }
 
     //
