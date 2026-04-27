@@ -321,27 +321,21 @@ ApplicationWindow {
             }
             transport.event(ev, args)
         }
+    }
 
-        // Qt6: WebEngineView is opaque, so MpvObject must be on top (z:2).
-        // To access web controls, temporarily hide MpvObject on mouse movement.
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            acceptedButtons: Qt.AllButtons
-            propagateComposedEvents: true
+    // Qt6: WebEngineView is opaque, MpvObject is on top (z:2).
+    // This overlay detects mouse movement to toggle MpvObject visibility,
+    // revealing web controls underneath. Accepts no clicks — they pass through.
+    MouseArea {
+        anchors.fill: parent
+        z: 3
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
 
-            onPositionChanged: {
-                if (mpv.videoActive) {
-                    mpv.visible = false
-                    controlsTimer.restart()
-                }
-            }
-            onClicked: function(mouse) {
-                if (mpv.videoActive) {
-                    mpv.visible = false
-                    controlsTimer.restart()
-                }
-                mouse.accepted = false
+        onPositionChanged: {
+            if (mpv.videoActive) {
+                mpv.visible = false
+                controlsTimer.restart()
             }
         }
     }
