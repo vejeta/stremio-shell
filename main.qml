@@ -1,14 +1,15 @@
-import QtQuick 2.7
-import QtWebEngine 1.4
-import QtWebChannel 1.0
-import QtQuick.Window 2.2 // for Window instead of ApplicationWindow; also for Screen
-import QtQuick.Controls 1.4 // for ApplicationWindow
-import QtQuick.Dialogs 1.2
+import QtQuick
+import QtWebEngine
+import QtWebChannel
+import QtQuick.Window
+import QtQuick.Controls
+import QtQuick.Dialogs
 import com.stremio.process 1.0
 import com.stremio.screensaver 1.0
 import com.stremio.libmpv 1.0
 import com.stremio.clipboard 1.0
-import QtQml 2.2
+import QtQml
+import QtCore
 
 import "autoupdater.js" as Autoupdater
 
@@ -62,6 +63,7 @@ ApplicationWindow {
     // Transport
     QtObject {
         id: transport
+        WebChannel.id: "transport"
         readonly property string shellVersion: Qt.application.version
         property string serverAddress: "http://127.0.0.1:11470" // will be set to something else if server inits on another port
         
@@ -98,18 +100,23 @@ ApplicationWindow {
             if (ev === "file-close") fileDialog.close()
             if (ev === "file-open") {
               if (typeof args !== "undefined") {
-                var fileDialogDefaults = {
-                  title: "Please choose",
-                  selectExisting: true,
-                  selectFolder: false,
-                  selectMultiple: false,
-                  nameFilters: [],
-                  selectedNameFilter: "",
-                  data: null
+                fileDialog.title = args.hasOwnProperty("title") ? args.title : "Please choose"
+                fileDialog.selectExisting = args.hasOwnProperty("selectExisting") ? args.selectExisting : true
+                fileDialog.selectFolder = args.hasOwnProperty("selectFolder") ? args.selectFolder : false
+                fileDialog.selectMultiple = args.hasOwnProperty("selectMultiple") ? args.selectMultiple : false
+                fileDialog.nameFilters = args.hasOwnProperty("nameFilters") ? args.nameFilters : []
+                fileDialog.extraData = args.hasOwnProperty("data") ? args.data : null
+
+                // Map legacy properties to Qt6 fileMode
+                if (fileDialog.selectFolder) {
+                  fileDialog.fileMode = FileDialog.OpenFolder
+                } else if (fileDialog.selectMultiple) {
+                  fileDialog.fileMode = FileDialog.OpenFiles
+                } else if (fileDialog.selectExisting) {
+                  fileDialog.fileMode = FileDialog.OpenFile
+                } else {
+                  fileDialog.fileMode = FileDialog.SaveFile
                 }
-                Object.keys(fileDialogDefaults).forEach(function(key) {
-                  fileDialog[key] = args.hasOwnProperty(key) ? args[key] : fileDialogDefaults[key]
-                })
               }
               fileDialog.open()
             }
@@ -275,7 +282,7 @@ ApplicationWindow {
         errorDialog.detailedText = 'Stremio streaming server has thrown an error \nQProcess::ProcessError code: ' 
             + code + '\n\n' 
             + streamingServer.getErrBuff();
-        errorDialog.visible = true
+        errorDialog.open()
     }
     function launchServer() {
         var node_executable = applicationDirPath + "/node"
@@ -299,7 +306,314 @@ ApplicationWindow {
     MpvObject {
         id: mpv
         anchors.fill: parent
-        onMpvEvent: function(ev, args) { transport.event(ev, args) }
+        z: 2
+        visible: false
+
+        property bool paused: false
+        property double duration: 0
+        property double position: 0
+        property int volume: 50
+        property bool muted: false
+        property double speed: 1.0
+        property var trackList: []
+        property int currentSid: 0
+        property int currentAid: 0
+        property bool subtitlesOn: true
+
+        function stopPlayer() {
+            mpv.command(["stop"])
+            mpv.visible = false
+            mpv.paused = false
+            mpv.position = 0
+            mpv.duration = 0
+            if (root.visibility === Window.FullScreen) root.setFullScreen(false)
+        }
+
+        onMpvEvent: function(ev, args) {
+            if (ev === "mpv-prop-change") {
+                if (args.name === "vid" && typeof args.data === "number") mpv.visible = true
+                if (args.name === "pause") mpv.paused = !!args.data
+                if (args.name === "duration" && args.data) mpv.duration = args.data
+                if (args.name === "time-pos" && args.data) mpv.position = args.data
+                if (args.name === "volume") mpv.volume = Math.round(args.data || 0)
+                if (args.name === "mute") mpv.muted = !!args.data
+                if (args.name === "speed") mpv.speed = args.data || 1.0
+                if (args.name === "track-list" && args.data) mpv.trackList = args.data
+                if (args.name === "sid") mpv.currentSid = typeof args.data === "number" ? args.data : 0
+                if (args.name === "aid") mpv.currentAid = typeof args.data === "number" ? args.data : 0
+            }
+            if (ev === "mpv-event-ended") {
+                mpv.visible = false
+                mpv.paused = false
+                mpv.position = 0
+                mpv.duration = 0
+            }
+            transport.event(ev, args)
+        }
+    }
+
+    // Qt6: Native player controls overlay
+    // Required because WebEngineView is opaque in Qt6.
+    Item {
+        id: playerControls
+        anchors.fill: parent
+        z: 3
+        visible: mpv.visible
+        focus: mpv.visible
+
+        property bool showControls: true
+        property bool seekDragging: false
+
+        function showAndRestart() {
+            showControls = true
+            hideTimer.restart()
+        }
+
+        function fmt(s) {
+            if (!s || s < 0) return "0:00"
+            var h = Math.floor(s / 3600)
+            var m = Math.floor((s % 3600) / 60)
+            var sec = Math.floor(s % 60)
+            if (h > 0) return h + ":" + (m<10?"0":"") + m + ":" + (sec<10?"0":"") + sec
+            return m + ":" + (sec<10?"0":"") + sec
+        }
+
+        // Keyboard shortcuts
+        Keys.onPressed: function(event) {
+            playerControls.showAndRestart()
+            if (event.key === Qt.Key_Space) { mpv.command(["cycle", "pause"]); event.accepted = true }
+            else if (event.key === Qt.Key_Right && event.modifiers & Qt.ShiftModifier) { mpv.command(["seek", "15"]); event.accepted = true }
+            else if (event.key === Qt.Key_Right) { mpv.command(["seek", "5"]); event.accepted = true }
+            else if (event.key === Qt.Key_Left && event.modifiers & Qt.ShiftModifier) { mpv.command(["seek", "-15"]); event.accepted = true }
+            else if (event.key === Qt.Key_Left) { mpv.command(["seek", "-5"]); event.accepted = true }
+            else if (event.key === Qt.Key_Up) { mpv.setProperty("volume", Math.min(100, mpv.volume + 5)); event.accepted = true }
+            else if (event.key === Qt.Key_Down) { mpv.setProperty("volume", Math.max(0, mpv.volume - 5)); event.accepted = true }
+            else if (event.key === Qt.Key_M) { mpv.command(["cycle", "mute"]); event.accepted = true }
+            else if (event.key === Qt.Key_F || event.key === Qt.Key_F11) { root.setFullScreen(root.visibility !== Window.FullScreen); event.accepted = true }
+            else if (event.key === Qt.Key_Escape) {
+                if (root.visibility === Window.FullScreen) root.setFullScreen(false)
+                else mpv.stopPlayer()
+                event.accepted = true
+            }
+            else if (event.key === Qt.Key_C) {
+                if (mpv.subtitlesOn) { mpv.setProperty("sid", "no"); mpv.subtitlesOn = false }
+                else { mpv.setProperty("sid", "auto"); mpv.subtitlesOn = true }
+                event.accepted = true
+            }
+            else if (event.key === Qt.Key_BracketLeft) { mpv.setProperty("speed", Math.max(0.25, mpv.speed - 0.25)); event.accepted = true }
+            else if (event.key === Qt.Key_BracketRight) { mpv.setProperty("speed", Math.min(2.0, mpv.speed + 0.25)); event.accepted = true }
+            else if (event.key === Qt.Key_Minus) { mpv.command(["add", "sub-scale", "-0.1"]); event.accepted = true }
+            else if (event.key === Qt.Key_Equal) { mpv.command(["add", "sub-scale", "0.1"]); event.accepted = true }
+        }
+
+        // Main interaction area
+        MouseArea {
+            id: controlsArea
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.LeftButton
+
+            property real lastClickTime: 0
+
+            onPositionChanged: playerControls.showAndRestart()
+
+            onWheel: function(wheel) {
+                if (wheel.angleDelta.y > 0) mpv.setProperty("volume", Math.min(100, mpv.volume + 5))
+                else mpv.setProperty("volume", Math.max(0, mpv.volume - 5))
+                playerControls.showAndRestart()
+            }
+
+            onClicked: function(mouse) {
+                var now = Date.now()
+                if (now - lastClickTime < 300) {
+                    // Double click: fullscreen
+                    root.setFullScreen(root.visibility !== Window.FullScreen)
+                    doubleClickGuard.stop()
+                } else {
+                    // Single click: pause (delayed to detect double)
+                    doubleClickGuard.restart()
+                }
+                lastClickTime = now
+                playerControls.showAndRestart()
+            }
+        }
+
+        Timer {
+            id: doubleClickGuard
+            interval: 300
+            onTriggered: mpv.command(["cycle", "pause"])
+        }
+
+        Timer {
+            id: hideTimer
+            interval: 3000
+            running: mpv.visible
+            onTriggered: if (!mpv.paused && !playerControls.seekDragging) playerControls.showControls = false
+        }
+
+        // Controls overlay (fades in/out)
+        Item {
+            anchors.fill: parent
+            opacity: playerControls.showControls ? 1.0 : 0.0
+            visible: opacity > 0
+            Behavior on opacity { NumberAnimation { duration: 300 } }
+
+            // Top bar
+            Rectangle {
+                anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+                height: 50
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Qt.rgba(0,0,0,0.7) }
+                    GradientStop { position: 1.0; color: "transparent" }
+                }
+
+                // Back button
+                Text {
+                    text: "\u2190  Back"
+                    color: "white"; font.pixelSize: 16
+                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; anchors.leftMargin: 15
+                    MouseArea { anchors.fill: parent; anchors.margins: -8; cursorShape: Qt.PointingHandCursor; onClicked: mpv.stopPlayer() }
+                }
+
+                // Speed indicator (shown when != 1x)
+                Text {
+                    visible: mpv.speed !== 1.0
+                    text: mpv.speed.toFixed(2) + "x"
+                    color: "#8b5cf6"; font.pixelSize: 14; font.bold: true
+                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; anchors.rightMargin: 15
+                }
+            }
+
+            // Center pause icon
+            Text {
+                anchors.centerIn: parent
+                text: "\u25B6"; font.pixelSize: 64; color: "white"; opacity: 0.9
+                visible: mpv.paused
+            }
+
+            // Bottom bar
+            Rectangle {
+                anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
+                height: 75
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "transparent" }
+                    GradientStop { position: 1.0; color: Qt.rgba(0,0,0,0.85) }
+                }
+
+                // Seek bar with drag support
+                Item {
+                    id: seekBarArea
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                    anchors.leftMargin: 15; anchors.rightMargin: 15; height: 24
+
+                    Rectangle {
+                        id: seekTrack
+                        anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        height: seekBarMouse.containsMouse || playerControls.seekDragging ? 6 : 4
+                        color: "#444"; radius: 3
+                        Behavior on height { NumberAnimation { duration: 100 } }
+
+                        Rectangle {
+                            width: mpv.duration > 0 ? parent.width * (mpv.position / mpv.duration) : 0
+                            height: parent.height; color: "#8b5cf6"; radius: 3
+                        }
+
+                        // Seek handle
+                        Rectangle {
+                            x: mpv.duration > 0 ? parent.width * (mpv.position / mpv.duration) - 6 : -6
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 12; height: 12; radius: 6; color: "#8b5cf6"
+                            visible: seekBarMouse.containsMouse || playerControls.seekDragging
+                        }
+                    }
+
+                    MouseArea {
+                        id: seekBarMouse
+                        anchors.fill: parent; anchors.topMargin: -8; anchors.bottomMargin: -8
+                        hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: function(mouse) {
+                            mpv.command(["seek", ((mouse.x / seekTrack.width) * mpv.duration).toString(), "absolute"])
+                        }
+                        onPressed: function(mouse) { playerControls.seekDragging = true }
+                        onReleased: function(mouse) {
+                            playerControls.seekDragging = false
+                            mpv.command(["seek", ((mouse.x / seekTrack.width) * mpv.duration).toString(), "absolute"])
+                        }
+                        onPositionChanged: function(mouse) {
+                            if (playerControls.seekDragging && mpv.duration > 0) {
+                                var pos = Math.max(0, Math.min(1, mouse.x / seekTrack.width)) * mpv.duration
+                                mpv.command(["seek", pos.toString(), "absolute"])
+                            }
+                        }
+                    }
+                }
+
+                // Control buttons row
+                Row {
+                    anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
+                    anchors.leftMargin: 15; anchors.rightMargin: 15; anchors.bottomMargin: 10
+                    height: 30; spacing: 18
+
+                    // Play/Pause
+                    Text {
+                        text: mpv.paused ? "\u25B6" : "\u23F8"
+                        font.pixelSize: 22; color: "white"; anchors.verticalCenter: parent.verticalCenter
+                        MouseArea { anchors.fill: parent; anchors.margins: -5; cursorShape: Qt.PointingHandCursor; onClicked: mpv.command(["cycle", "pause"]) }
+                    }
+
+                    // Time
+                    Text {
+                        text: playerControls.fmt(mpv.position) + " / " + playerControls.fmt(mpv.duration)
+                        color: "#bbb"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    // Flexible spacer
+                    Item { width: Math.max(0, parent.width - childrenWidth()); height: 1
+                        function childrenWidth() {
+                            var w = 0; for (var i = 0; i < parent.children.length - 1; i++) w += parent.children[i].width + parent.spacing
+                            return w
+                        }
+                    }
+
+                    // Subtitles toggle
+                    Text {
+                        text: "CC"
+                        font.pixelSize: 14; font.bold: true
+                        color: mpv.subtitlesOn && mpv.currentSid > 0 ? "#8b5cf6" : "#888"
+                        anchors.verticalCenter: parent.verticalCenter
+                        MouseArea {
+                            anchors.fill: parent; anchors.margins: -5; cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (mpv.subtitlesOn) { mpv.setProperty("sid", "no"); mpv.subtitlesOn = false }
+                                else { mpv.setProperty("sid", "auto"); mpv.subtitlesOn = true }
+                            }
+                        }
+                    }
+
+                    // Volume
+                    Row {
+                        anchors.verticalCenter: parent.verticalCenter; spacing: 4
+                        Text {
+                            text: mpv.muted || mpv.volume === 0 ? "\uD83D\uDD07" : mpv.volume < 50 ? "\uD83D\uDD09" : "\uD83D\uDD0A"
+                            font.pixelSize: 16; color: "white"; anchors.verticalCenter: parent.verticalCenter
+                            MouseArea { anchors.fill: parent; anchors.margins: -5; cursorShape: Qt.PointingHandCursor; onClicked: mpv.command(["cycle", "mute"]) }
+                        }
+                        Slider {
+                            width: 80; from: 0; to: 100; value: mpv.volume
+                            anchors.verticalCenter: parent.verticalCenter
+                            onMoved: mpv.setProperty("volume", value)
+                        }
+                    }
+
+                    // Fullscreen
+                    Text {
+                        text: root.visibility === Window.FullScreen ? "\u2750" : "\u26F6"
+                        font.pixelSize: 18; color: "white"; anchors.verticalCenter: parent.verticalCenter
+                        MouseArea { anchors.fill: parent; anchors.margins: -5; cursorShape: Qt.PointingHandCursor; onClicked: root.setFullScreen(root.visibility !== Window.FullScreen) }
+                    }
+                }
+            }
+        }
     }
 
     //
@@ -340,17 +654,29 @@ ApplicationWindow {
         pulseOpacity.running = false
         removeSplashTimer.running = false
         webView.webChannel.registerObject( 'transport', transport )
-        // Try-catch to be able to return the error as result, but still throw it in the client context
-        // so it can be caught and reported
+
         var injectedJS = "try { initShellComm() } " +
                 "catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
         webView.runJavaScript(injectedJS, function(err) {
             if (!err) {
                 webView.tries = 0
+                // DEBUG: After initShellComm, attach listener to verify shell→web events
+                webView.runJavaScript(
+                    "setTimeout(function() { " +
+                    "  if(window.transport && window.transport.event) { " +
+                    "    window.transport.event.connect(function(ev, args) { " +
+                    "      console.log('SHELL→WEB event received: ' + ev); " +
+                    "    }); " +
+                    "    console.log('DEBUG: shell→web listener attached successfully'); " +
+                    "  } else { " +
+                    "    console.log('DEBUG: window.transport.event NOT available - shell→web broken!'); " +
+                    "  } " +
+                    "}, 1000);"
+                )
             } else {
                 errorDialog.text = "User Interface could not be loaded.\n\nPlease try again later or contact the Stremio support team for assistance."
                 errorDialog.detailedText = err
-                errorDialog.visible = true
+                errorDialog.open()
 
                 console.error(err)
             }
@@ -375,10 +701,10 @@ ApplicationWindow {
         focus: true
 
         readonly property string mainUrl: getWebUrl()
-        
+
         url: webView.mainUrl;
         anchors.fill: parent
-        backgroundColor: "transparent";
+        backgroundColor: "transparent"
         property int tries: 0
 
         readonly property int maxTries: 20
@@ -396,7 +722,7 @@ ApplicationWindow {
 
         onLoadingChanged: function(loadRequest) {
             // hack for webEngineView changing it's background color on crashes
-            webView.backgroundColor = "transparent"
+            webView.backgroundColor = Qt.rgba(0, 0, 0, 0)
 
             var successfullyLoaded = loadRequest.status == WebEngineView.LoadSucceededStatus
             if (successfullyLoaded || webView.tries > 0) {
@@ -439,8 +765,8 @@ ApplicationWindow {
 
         // In the app, we use open-external IPC signal, but make sure this works anyway
         property string hoveredUrl: ""
-        onLinkHovered: webView.hoveredUrl = hoveredUrl
-        onNewViewRequested: function(req) { if (req.userInitiated) Qt.openUrlExternally(webView.hoveredUrl) }
+        onLinkHovered: function(url) { webView.hoveredUrl = url }
+        onNewWindowRequested: function(req) { if (req.userInitiated) Qt.openUrlExternally(webView.hoveredUrl) }
 
         // FIXME: When is this called?
         onFullScreenRequested: function(req) {
@@ -461,34 +787,34 @@ ApplicationWindow {
 
         Menu {
             id: ctxMenu
-            MenuItem {
+            Action {
                 text: "Undo"
                 shortcut: StandardKey.Undo
                 onTriggered: webView.triggerWebAction(WebEngineView.Undo)
             }
-            MenuItem {
+            Action {
                 text: "Redo"
                 shortcut: StandardKey.Redo
                 onTriggered: webView.triggerWebAction(WebEngineView.Redo)
             }
             MenuSeparator { }
-            MenuItem {
+            Action {
                 text: "Cut"
                 shortcut: StandardKey.Cut
                 onTriggered: webView.triggerWebAction(WebEngineView.Cut)
             }
-            MenuItem {
+            Action {
                 text: "Copy"
                 shortcut: StandardKey.Copy
                 onTriggered: webView.triggerWebAction(WebEngineView.Copy)
             }
-            MenuItem {
+            Action {
                 text: "Paste"
                 shortcut: StandardKey.Paste
                 onTriggered: webView.triggerWebAction(WebEngineView.Paste)
             }
             MenuSeparator { }
-            MenuItem {
+            Action {
                 text: "Select All"
                 shortcut: StandardKey.SelectAll
                 onTriggered: webView.triggerWebAction(WebEngineView.SelectAll)
@@ -504,9 +830,9 @@ ApplicationWindow {
             }
         }
 
-        Action {
-            shortcut: StandardKey.Paste
-            onTriggered: webView.triggerWebAction(WebEngineView.Paste)
+        Shortcut {
+            sequence: StandardKey.Paste
+            onActivated: webView.triggerWebAction(WebEngineView.Paste)
         }
 
         DropArea {
@@ -521,6 +847,7 @@ ApplicationWindow {
 
     WebChannel {
         id: wChannel
+        registeredObjects: [transport]
     }
 
     //
@@ -555,19 +882,24 @@ ApplicationWindow {
     MessageDialog {
         id: errorDialog
         title: "Stremio - Application Error"
-        // onAccepted handler does not work
-        //icon: StandardIcon.Critical
-        //standardButtons: StandardButton.Ok
+        buttons: MessageDialog.Ok
     }
 
     FileDialog {
       id: fileDialog
-      folder: shortcuts.home
+      currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)
+      // Qt6 FileDialog properties for compatibility with the transport event API
+      property bool selectExisting: true
+      property bool selectFolder: false
+      property bool selectMultiple: false
+      property var extraData: null
       onAccepted: {
         var fileProtocol = "file://"
         var onWindows = Qt.platform.os === "windows" ? 1 : 0
         var pathSeparators = ["/", "\\"]
-        var files = fileDialog.fileUrls.filter(function(fileUrl) {
+        var files = fileDialog.selectedFiles.map(function(fileUrl) {
+          return fileUrl.toString()
+        }).filter(function(fileUrl) {
           // Ignore network drives and alike
           return fileUrl.startsWith(fileProtocol)
         })
@@ -584,8 +916,8 @@ ApplicationWindow {
           selectFolder: fileDialog.selectFolder,
           selectMultiple: fileDialog.selectMultiple,
           nameFilters: fileDialog.nameFilters,
-          selectedNameFilter: fileDialog.selectedNameFilter,
-          data: fileDialog.data
+          selectedNameFilter: fileDialog.selectedNameFilterIndex,
+          data: fileDialog.extraData
         })
       }
       onRejected: {
@@ -595,11 +927,10 @@ ApplicationWindow {
           selectFolder: fileDialog.selectFolder,
           selectMultiple: fileDialog.selectMultiple,
           nameFilters: fileDialog.nameFilters,
-          selectedNameFilter: fileDialog.selectedNameFilter,
-          data: fileDialog.data
+          selectedNameFilter: fileDialog.selectedNameFilterIndex,
+          data: fileDialog.extraData
         })
       }
-      property var data: {}
     }
 
     //
