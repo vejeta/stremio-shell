@@ -307,16 +307,52 @@ ApplicationWindow {
         anchors.fill: parent
         z: 2
         visible: false
+
+        property bool videoActive: false
+
         onMpvEvent: function(ev, args) {
-            // Show MpvObject when video track is active
             if (ev === "mpv-prop-change" && args.name === "vid" && typeof args.data === "number") {
+                mpv.videoActive = true
                 mpv.visible = true
             }
-            // Hide when playback ends
             if (ev === "mpv-event-ended") {
+                mpv.videoActive = false
                 mpv.visible = false
             }
             transport.event(ev, args)
+        }
+
+        // Qt6: WebEngineView is opaque, so MpvObject must be on top (z:2).
+        // To access web controls, temporarily hide MpvObject on mouse movement.
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.AllButtons
+            propagateComposedEvents: true
+
+            onPositionChanged: {
+                if (mpv.videoActive) {
+                    mpv.visible = false
+                    controlsTimer.restart()
+                }
+            }
+            onClicked: function(mouse) {
+                if (mpv.videoActive) {
+                    mpv.visible = false
+                    controlsTimer.restart()
+                }
+                mouse.accepted = false
+            }
+        }
+    }
+
+    Timer {
+        id: controlsTimer
+        interval: 3000
+        onTriggered: {
+            if (mpv.videoActive) {
+                mpv.visible = true
+            }
         }
     }
 
